@@ -1,0 +1,146 @@
+#include <zephyr/kernel.h>
+#include <zephyr/drivers/gpio.h>
+#include <stdio.h>
+#include <zephyr/sys/util.h>
+
+/* LED nodes from devicetree */
+#define LED0_NODE DT_ALIAS(led0)
+
+/* Button node from devicetree */
+#define BTN0_NODE DT_ALIAS(btn0)
+
+/* GPIO specs */
+static const struct gpio_dt_spec led0 = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
+static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET(BTN0_NODE, gpios);
+
+/* Thread configuration */
+#define STACK_SIZE 512
+#define PRIORITY   5
+
+
+/* Thread stacks */
+K_THREAD_STACK_DEFINE(button_stack, STACK_SIZE);
+
+/* Thread control blocks */
+static struct k_thread button_thread_data;
+
+/* GPIO callback structure for button interrupt */
+static struct gpio_callback button_cb_data;
+
+
+static int64_t start_time = 0;
+
+/* Semaphore for deferred interrupt handling */
+K_SEM_DEFINE(button_sem, 0, 1);
+
+/* Mutex to protect current_led */
+K_MUTEX_DEFINE(led_mutex);
+
+
+
+/*
+ * ISR: 
+ * Only signal the button task that a button event happened.
+ */
+static void button_pressed_isr(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
+{
+	ARG_UNUSED(dev);
+	ARG_UNUSED(cb);
+	ARG_UNUSED(pins);
+
+	k_sem_give(&button_sem);
+}
+
+
+/* Task: handle button presses outside ISR */
+void button_task(void *arg1, void *arg2, void *arg3)
+{
+	ARG_UNUSED(arg1);
+	ARG_UNUSED(arg2);
+	ARG_UNUSED(arg3);
+
+   int64_t end_time = 0;
+   int64_t duration = 0;
+   
+	while (1) {
+      if (start_time <= 0) {
+         printk("\n*** 3-Second Game ***\n");
+         printk("Push the button to START!\n");
+         
+         /* Wait until ISR signals a button press */
+         k_sem_take(&button_sem, K_FOREVER);
+         
+         start_time = k_uptime_get();
+         
+         printk("Started! Please press the button again after 3 seconds\n");
+         
+         k_msleep(200); 
+         gpio_pin_toggle_dt(&led0);
+         k_sem_reset(&button_sem);
+      }
+      else {
+         /* Wait until ISR signals a button press */
+         k_sem_take(&button_sem, K_FOREVER);
+         
+         end_time = k_uptime_get();
+         duration = end_time - start_time;
+         
+         start_time = 0;
+         
+         printk("You pressed the button after %lld ms\n", duration);
+         
+         k_msleep(500); 
+         gpio_pin_toggle_dt(&led0);
+         k_sem_reset(&button_sem);
+      }
+	}
+}
+
+int main(void)
+{
+	int ret;
+
+	/* Check GPIO devices are ready */
+	if (!gpio_is_ready_dt(&led0) || !gpio_is_ready_dt(&button)) {
+		return 0;
+	}
+   
+   /* Configure LEDs as outputs, initially OFF */
+	ret = gpio_pin_configure_dt(&led0, GPIO_OUTPUT_INACTIVE);
+	if (ret < 0) {
+		return 0;
+	}
+
+	/* Configure button as input */
+	ret = gpio_pin_configure_dt(&button, GPIO_INPUT);
+	if (ret < 0) {
+		return 0;
+	}
+
+	/* Configure interrupt on button press */
+	ret = gpio_pin_interrupt_configure_dt(&button, GPIO_INT_EDGE_TO_ACTIVE);
+	if (ret < 0) {
+		return 0;
+	}
+
+	/* Register GPIO callback */
+	gpio_init_callback(&button_cb_data, button_pressed_isr, BIT(button.pin));
+
+	ret = gpio_add_callback_dt(&button, &button_cb_data);
+	if (ret < 0) {
+		return 0;
+	}
+
+	/* Create button handler task */
+	k_thread_create(&button_thread_data, button_stack, STACK_SIZE,
+			button_task,
+			NULL, NULL, NULL,
+			PRIORITY, 0, K_NO_WAIT);
+
+	/* Main thread does nothing hereinafter */
+	while (1) {
+		k_msleep(1000);
+	}
+
+	return 0;
+}
