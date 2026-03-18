@@ -1,0 +1,42 @@
+/ {
+	aliases {
+		led0 = &ext_led0;
+		led1 = &ext_led1;
+		led2 = &ext_led2;
+		led3 = &ext_led3;
+      btn0 = &ext_btn0;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		ext_led0: led_0 {
+			gpios = <&gpio0 0 GPIO_ACTIVE_HIGH>;
+			label = "LED0";
+		};
+
+		ext_led1: led_1 {
+			gpios = <&gpio0 1 GPIO_ACTIVE_HIGH>;
+			label = "LED1";
+		};
+
+		ext_led2: led_2 {
+			gpios = <&gpio0 2 GPIO_ACTIVE_HIGH>;
+			label = "LED2";
+		};
+
+		ext_led3: led_3 {
+			gpios = <&gpio0 3 GPIO_ACTIVE_HIGH>;
+			label = "LED3";
+		};
+	};
+   
+   buttons { 
+      compatible = "gpio-keys";
+   
+      ext_btn0: btn_0 {
+         gpios = <&gpio0 20 GPIO_ACTIVE_HIGH>;
+         label = "BTN0";
+      };
+   };
+};
